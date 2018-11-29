@@ -1,0 +1,9 @@
+{
+  "name": "bauchan",
+  "description": "Example host for native messaging",
+  "path": "here should be a patch to bauchan.py",
+  "type": "stdio",
+  "allowed_extensions": [
+    "bauchan@example.org"
+  ]
+}
