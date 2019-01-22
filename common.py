@@ -20,54 +20,45 @@ def write_script(path, content):
 
 
 class Data(object):
-    def __init__(self, application_support_path='~/Library/Application Support/org.example.bauchan'):
+    """
+    Handles the data common for `bauchan` and `bauchand`.
+
+    >>> data = Data('/tmp/Bauchan')
+    >>> data.agent_pid = 42
+    >>> data.agent_pid
+    42
+    >>> del data.agent_pid
+    >>> data.agent_pid
+    -1
+    """
+    def __init__(self, application_support_path='~/Library/Application Support/Bauchan'):
         self._path = os.path.expanduser(application_support_path)
-        # TODO: Replace Data.plist with .pid file in the Application Support directory
-        self._filename = os.path.join(self._path, 'Data.plist')
         os.makedirs(self._path, exist_ok=True)
-
-    def _load(self):
-        try:
-            with open(self._filename, 'rb') as fp:
-                data = plistlib.load(fp, fmt=plistlib.FMT_XML)
-        except FileNotFoundError:
-            data = {}
-        return data
-
-    def _dump(self, data):
-        with open(self._filename, 'wb') as fp:
-            plistlib.dump(data, fp, fmt=plistlib.FMT_XML)
-
-    def _get(self, key, default):
-        data = self._load()
-        return data.get(key, default)
-
-    def _set(self, key, value):
-        data = self._load()
-        data[key] = value
-        self._dump(data)
-
-    def _unset(self, key):
-        data = self._load()
-        if key in data:
-            del data[key]
-        self._dump(data)
 
     @property
     def temp_script_path(self) -> str:
-        return self._get('TemporaryScriptPath', os.path.join(self._path, 'bauchan.temp.sh'))
+        return os.path.join(self._path, 'temp.sh')
+
+    @property
+    def agent_pid_path(self):
+        return os.path.join(self._path, 'agent.pid')
 
     @property
     def agent_pid(self) -> int:
-        return int(self._get('AgentPID', -1))
+        try:
+            with open(self.agent_pid_path) as f:
+                return int(f.read())
+        except FileNotFoundError:
+            return -1
 
     @agent_pid.setter
     def agent_pid(self, value: int):
-        self._set('AgentPID', value)
+        with open(self.agent_pid_path, 'w') as f:
+            f.write(str(value) + '\n')
 
     @agent_pid.deleter
     def agent_pid(self):
-        self._unset('AgentPID')
+        os.remove(self.agent_pid_path)
 
 
 __all__ = [
