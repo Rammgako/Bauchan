@@ -1,124 +1,126 @@
-#!/usr/bin/python -u
+#!../MacOS/python -u
+"""
+This script handles Firefox Native Messaging.
+"""
+
 import json
+import logging
 import os
-import re
-import stat
 import struct
 import subprocess
 import sys
 import traceback
 
-
-def is_interactive():
-    return os.getenv('INTERACTIVE', False)
+import common
 
 
-def get_message():
+class NativeMessageInterface(object):
     """
-    Read a message from stdin and decode it.
+    Provides a Native Messaging interface,
+    or its interactive mock-up.
     """
-    if is_interactive():
-        raw_message = raw_input('IN(json)> ')
-        if raw_message == 'quit':
-            print('Bye!')
-            sys.exit(0)
-    else:
-        raw_length = sys.stdin.read(4)
-        if not raw_length:
-            sys.exit(0)
-        message_length = struct.unpack('=I', raw_length)[0]
-        raw_message = sys.stdin.read(message_length)
-    return json.loads(raw_message)
+    def __init__(self, callback, interactive=False):
+        """
+        :param callback: A function to handle the message i.e. process a Native Messaging request.
+        It would take a JSON-like structure and return another JSON-like structure which would be passed
+        to the requester.
+        Upon any failure, the error message along with the stacktrace would be passed to the requester.
+        :param interactive: If set to `True`, would make the interface to be a command-line interface
+        that reads messages from stdin and writes them back to stdout.
+        """
+        self._callback = callback
+        self._interactive = interactive
+        logging.info('PWD: %s' % os.getcwd())
+
+    def get_message(self):
+        """
+        Read a message from stdin and decode it.
+        """
+        if self._interactive:
+            raw_message = input('IN(json)> ')
+            if raw_message == 'quit':
+                print('Bye!')
+                sys.exit(0)
+        else:
+            raw_length = sys.stdin.buffer.read(4)
+            if not raw_length:
+                sys.exit(0)
+            message_length = struct.unpack('=I', raw_length)[0]
+            raw_message = sys.stdin.read(message_length)
+        message = json.loads(raw_message)
+        logging.info('Request:\n%s' % json.dumps(message, indent=2))
+        return message
+
+    def send_message(self, message):
+        """
+        Send an encoded message to stdout.
+        """
+        logging.info('Response:\n%s' % json.dumps(message, indent=2))
+        if self._interactive:
+            print('OUT(json)> %s' % json.dumps(message, indent=2))
+        else:
+            encoded_content = json.dumps(message)
+            encoded_length = struct.pack('=I', len(encoded_content))
+            sys.stdout.buffer.write(encoded_length)
+            sys.stdout.write(encoded_content)
+            sys.stdout.flush()
+
+    def run(self):
+        while True:
+            try:
+                message = self.get_message()
+                output = self._callback(message)
+            except (KeyboardInterrupt, SystemExit):
+                break
+            except Exception as e:
+                estr = traceback.format_exc()
+                response = dict(error=str(e), trace=estr.split('\n'))
+            else:
+                response = dict(output=output)
+            self.send_message(response)
 
 
-def send_message(message):
-    """
-    Send an encoded message to stdout.
-    """
-    if is_interactive():
-        print('OUT(json)> %s' % json.dumps(message))
-    else:
-        encoded_content = json.dumps(message)
-        encoded_length = struct.pack('=I', len(encoded_content))
-        sys.stdout.write(encoded_length)
-        sys.stdout.write(encoded_content)
-        sys.stdout.flush()
+class Handler(object):
+    def __init__(self, data):
+        self._data = data
 
+    def handle(self, message):
+        script_content = self.build_script_content(message)
+        common.write_script(self._data.temp_script_path, script_content)
+        return self.notify_agent()
 
-def read_config():
-    with open(os.path.expanduser('~/.bauchan.config.json')) as f:
-        return json.load(f)
+    @staticmethod
+    def build_script_content(message):
+        """
+        >>> print(Handler.build_script_content(dict(args=['app'])))
+        #!/bin/bash
+        app
+        >>> print(Handler.build_script_content(dict(env=dict(A='A'), args=['app'])))
+        #!/bin/bash
+        A=A app
+        >>> print(Handler.build_script_content(dict(args=['app', 'b'])))
+        #!/bin/bash
+        app b
+        """
+        env = ' '.join(['%s=%s' % (key, value)for key, value in message.get('env', {}).items()] + [''])
+        args = ' '.join(['%s' % value for value in message['args']])
+        return '\n'.join([
+            '#!/bin/bash',
+            '%s%s' % (env, args),
+        ])
 
-
-def is_allowed_value(value):
-    """
-    >>> is_allowed_value('')
-    True
-    >>> is_allowed_value('x')
-    True
-    >>> is_allowed_value('!')
-    False
-    >>> is_allowed_value('x' * 100)
-    True
-    >>> is_allowed_value('x' * 101)
-    False
-    """
-    return bool(re.match('^[a-zA-Z0-9.-_]{0,100}$', value))
-
-
-def write_temp_script(config, message):
-    script_path = os.path.expanduser(config['path'])
-    with open(os.path.expanduser('~/.bauchan.temp.sh'), 'w') as script_file:
-        env = [
-            '%s=\'%s\'' % (key, value)
-            for key, value in message.get('env', {}).items()
-        ]
-        args = [
-            '\'%s\'' % (value)
-            for value in message.get('args', [])
-        ]
-        script_file.write('#!/bin/bash\n%s %s %s\n' % (
-            ' '.join(env),
-            script_file,
-            ' '.join(args)
-        ))
-    os.chmod(script_file.name, stat.S_IREAD | stat.S_IEXEC | stat.S_IWRITE)
-
-
-def notify_bauchand():
-    with open(os.path.expanduser('~/.bauchan.pid')) as pid_file:
-        pid = int(pid_file.read())
-        return subprocess.check_output(['/bin/kill', '-SIGUSR2', str(pid)])
+    def notify_agent(self):
+        return str(subprocess.check_output(['/bin/kill', '-SIGUSR2', str(self._data.agent_pid)]))
 
 
 def main():
-    """
-    Accepts 3 message types:
-    1. {"type":"config"} would return the content of the ~/.bauchan.config.json
-    2. {"type":"run","env":{"VAR1":"VALUE1", ...}} would write variables into a temporary script
-    ~/.bauchan.temp.sh and notify bauchand about that
-    :return:
-    """
-    config = read_config()
-    while True:
-        try:
-            message = get_message()
-            message_type = message['type']
-            if message_type == 'config':
-                output = config
-            elif message_type == 'run':
-                write_temp_script(config, message)
-                output = notify_bauchand()
-            else:
-                output = 'unsupported message type: %s' % message_type
-        except Exception as e:
-            estr = traceback.format_exc()
-            send_message({
-                'error': str(e),
-                'trace': estr.split('\n')
-            })
-        else:
-            send_message({'output': output})
+    common.configure_logging('bauchan')
+    data = common.Data()
+    handler = Handler(data=data)
+    NativeMessageInterface(
+        callback=handler.handle,
+        interactive=os.getenv('INTERACTIVE', False),
+    ).run()
 
 
 if __name__ == '__main__':
