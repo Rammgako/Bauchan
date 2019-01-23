@@ -9,7 +9,7 @@ import rumps
 import common
 
 
-def open_in_app(app='Terminal', new_instance=True, *paths):
+def open_in_app(*paths, app='Terminal', new_instance=True):
     try:
         args = ['/usr/bin/open'] + (['-n'] if new_instance else []) + ['-a', app] + list(paths)
         logging.info('Executing: %s' % ' '.join(args))
@@ -49,6 +49,8 @@ class Daemon(object):
         try:
             while True:
                 signal.pause()
+        except KeyboardInterrupt:
+            pass
         finally:
             del self._data.agent_pid
 
@@ -127,13 +129,13 @@ class App(rumps.App):
     @rumps.clicked('View Logs')
     def view_logs_of_native_messaging_handler(self, _):
         open_in_app(
-            *[
-                os.path.expanduser('~/Library/Logs/%s/%s.log' % (self.title, log_name))
+            *filter(os.path.isfile, [
+                os.path.expanduser('~/Library/Logs/Bauchan/%s.log' % log_name)
                 for log_name in ['bauchand', 'bauchan']
-            ],
+            ]),
             app='Console',
             new_instance=False,
-        )
+        ),
 
 
 def main():

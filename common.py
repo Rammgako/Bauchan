@@ -58,7 +58,10 @@ class Data(object):
 
     @agent_pid.deleter
     def agent_pid(self):
-        os.remove(self.agent_pid_path)
+        try:
+            os.remove(self.agent_pid_path)
+        except FileNotFoundError:
+            pass
 
 
 __all__ = [
