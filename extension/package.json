@@ -6,6 +6,7 @@
   "scripts": {
     "build": "./node_modules/.bin/web-ext build --overwrite-dest",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "run": "./node_modules/.bin/web-ext run --browser-console --start-url file://$PWD/../examples/echo/index.html",
     "which_node": "which node"
   },
   "repository": {

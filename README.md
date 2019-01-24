@@ -12,6 +12,13 @@ via a single click in browser.
 
 ## How Bauchan works
 
+Bauchan consists of two components -
+WebExtension (see [`extension/`](extension/README.md))
+and the MacOS application bundle named `Bauchan.app` which is described below.
+In order to use Bauchan, the application must be running
+(you'll notice the `Bauchan` menu in the top menu bar),
+and the WebExtension installed into the Firefox.
+
 When user clicks onto extension button:
 * All necessary information is extracted from the active tab
 * Bauchan WebExtension sends the extracted data to `bauchan@example.org`
